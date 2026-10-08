@@ -12,14 +12,36 @@ def save_user_profile (sender ,instance ,created ,**kwargs ):
             instance .profile .save ()
 
 class Profile(models.Model):
+    USER ='user'
+    ADMIN ='admin'
+    ROLE_CHOICES =[
+    (USER ,'User'),
+    (ADMIN ,'Admin'),
+    ]
     user = models.OneToOneField('auth.User', on_delete=models.CASCADE)
+    role = models.CharField(max_length=5, choices=ROLE_CHOICES, default=USER)
     bio = models.TextField(blank=True, max_length=250)
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True, default='avatars/default.png' )
     encryption_public_key = models.TextField(blank=True)
     friends = models.ManyToManyField('self', symmetrical=True, blank=True)
 
     def __str__(self):
-        return f'Profile of {self.user.username}'
+        return f'Profile of {self.user.username} role: {self.role}'
+
+    def _sync_role_from_user(self):
+        if self.user_id:
+            if self.user.is_superuser:
+                self.role = self.ADMIN
+            else:
+                self.role = self.USER
+
+    def save(self, *args, **kwargs):
+        self._sync_role_from_user()
+        super().save(*args, **kwargs)
+
+    def auto_give_role(self):
+        self._sync_role_from_user()
+        self.save()
 
 class Friendship(models.Model):
     user1 = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='friendships')

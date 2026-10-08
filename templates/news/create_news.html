@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %} Створення нових новин {% endblock %}
+
+{% block content %}
+    <div class="post-editor-heading">
+        <div>
+            <p class="eyebrow">Нова публікація</p>
+            <h1 class="display-title">Створіть новину</h1>
+            <p class="lead-copy">Опишіть новину.</p>
+        </div>
+        <a class="button-outline post-editor-back" href="{% url 'news_list' %}"><i class="bi bi-arrow-left" aria-hidden="true"></i> До новин</a>
+    </div>
+    <form class="panel post-editor" method="post" action="{% url 'create_news' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="post-editor-main">{% include "news/post_form_fields.html" %}</div>
+        <div class="post-editor-footer">
+            <span class="muted-copy"><i class="bi bi-shield-check" aria-hidden="true"></i> Новина буде опублікована від вашого імені.</span>
+            <button type="submit" class="button-primary"><i class="bi bi-send" aria-hidden="true"></i> Опублікувати</button>
+        </div>
+    </form>
+{% endblock %}

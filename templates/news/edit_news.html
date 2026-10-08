@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %} Редагування новини {% endblock %}
+
+{% block content %}
+    <div class="post-editor-heading">
+        <div>
+            <p class="eyebrow">Редагування новини</p>
+            <h1 class="display-title">Оновіть новину</h1>
+            <p class="lead-copy">Внесіть зміни, щоб зберегти новину актуальним.</p>
+        </div>
+        <a class="button-outline post-editor-back" href="{% url 'news_detail' news.id %}"><i class="bi bi-arrow-left" aria-hidden="true"></i> До новини</a>
+    </div>
+    <form class="panel post-editor" method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="post-editor-main">{% include "news/post_form_fields.html" %}</div>
+            <span class="muted-copy"><i class="bi bi-clock-history" aria-hidden="true"></i> Зміни збережуться одразу.</span>
+            <button type="submit" class="button-primary"><i class="bi bi-check2" aria-hidden="true"></i> Зберегти зміни</button>
+    </form>
+{% endblock %}

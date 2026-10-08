@@ -1,0 +1,19 @@
+<div class="post-form-field">
+    <label class="post-form-label" for="news-title">Заголовок<span aria-hidden="true">*</span></label>
+    <input class="post-form-input" type="text" id="news-title" name="title" maxlength="255" placeholder="Введіть заголовок новини" autocomplete="off" required>
+</div>
+
+<div class="post-form-field">
+    <label class="post-form-label" for="news-content">Текст новини<span aria-hidden="true">*</span></label>
+    <textarea class="post-form-input post-form-textarea" id="news-content" name="content" rows="8" placeholder="Опишіть новину..." required></textarea>
+</div>
+
+<div class="post-form-field">
+    <label class="post-form-label" for="news-file">Вкладення</label>
+    <label class="post-file-drop" for="news-file">
+        <i class="bi bi-paperclip" aria-hidden="true"></i>
+        <span><strong>Додайте файл</strong><small data-file-name>Натисніть, щоб вибрати вкладення</small></span>
+        <input class="post-form-file" type="file" id="news-file" name="file">
+    </label>
+    <small class="post-form-help">Необов’язково. Можна додати зображення або документ.</small>
+</div>

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %} {{ post.title }} {% endblock %}
+
+{% block content %}
+    {% load static %}
+    <article class="post-detail-layout">
+        <div class="post-detail-main">
+            <header class="post-detail-header">
+                <p class="eyebrow">Публікація</p>
+                <h1 class="display-title">{{ news.title }}</h1>
+                <div class="post-detail-author">
+                    {% if news.author %}
+                        {% if request.user != news.author %}
+                            <a href="{% url 'profile-view' news.author.id %}" class="button-secondary">Профіль автора</a>
+                            <form method="post" action="{% url 'subscribe_to_user' news.author.id %}">
+                                {% csrf_token %}
+                                <button type="submit" class="button-secondary">Підписатися</button>
+                            </form>
+                        {% endif %}
+                        {% if news.author.profile.avatar.name %}
+                            <img src="{{ news.author.profile.avatar.url }}" alt="Аватар {{ news.author.username }}" class="post-detail-avatar">
+                        {% else %}
+                            <i class="bi bi-person-circle" aria-hidden="true"></i>
+                        {% endif %}
+                        <span>від <strong>{{ news.author.username }}</strong></span>
+                    {% else %}
+                        <i class="bi bi-person-circle" aria-hidden="true"></i>
+                        <span>Автор не вказаний</span>
+                    {% endif %}
+                </div>
+            </header>
+
+            <section class="post-content-block" aria-labelledby="post-content-title">
+                <h2 id="post-content-title" class="post-detail-section-title">Текст новини</h2>
+                <div class="post-content">{{ news.content|linebreaks }}</div>
+            </section>
+        </div>
+        <aside class="post-detail-sidebar">
+            <section class="post-info-card" aria-label="Інформація про новину">
+                <div class="post-info-row"><span>Створено</span><time>{{ news.created_at }}</time></div>
+                <div class="post-info-row"><span>Оновлено</span><time>{{ news.updated_at }}</time></div>
+            </section>
+
+            <section class="post-attachment-card" aria-labelledby="attachment-title">
+                <h2 id="attachment-title" class="post-detail-section-title">Вкладення</h2>
+                {% if news.file %}
+                  <a class='post-attachment-link button-secondary' href="{{ news.file.url }}" download>Завантажити файл</a>
+                    {% if file_kind == 'image' %}
+                        <img src="{{ news.file.url }}" alt="Вкладення до новини" class="zoomable-img post-attachment-media">
+                    {% elif file_kind == 'video' %}
+                        <video controls preload="metadata" class="post-attachment-media"><source src="{{ news.file.url }}"></video>
+                    {% elif file_kind == 'audio' %}
+                        <audio controls preload="metadata" class="post-attachment-audio"><source src="{{ news.file.url }}"></audio>
+                    {% else %}
+                        <a class="post-document-link" href="{{ news.file.url }}"><i class="bi bi-file-earmark-text" aria-hidden="true"></i><span>{{ news.file.name|cut:'post_files/' }}</span><i class="bi bi-download" aria-hidden="true"></i></a>
+                    {% endif %}
+                    {% if request.user.is_authenticated %}
+                        {% if request.user == news.author or request.user.is_superuser or request.user.profile.role == 'admin' %}
+                            <form method="post" action="{% url 'delete_news_attachment' news.id %}">
+                                {% csrf_token %}
+                                <button type="submit" class="button-danger"><i class="bi bi-trash3" aria-hidden="true"></i> Видалити вкладення</button>
+                            </form>
+                        {% endif %}
+                    {% endif %}
+                {% else %}
+                    <p class="muted-copy post-empty-attachment"><i class="bi bi-paperclip" aria-hidden="true"></i> Файл не додано</p>
+                {% endif %}
+            </section>
+
+            <div class="post-detail-actions">
+                {% if request.user == news.author or request.user.is_superuser %}
+                    <a href="{% url 'edit_news' news.id %}" class="button-primary"><i class="bi bi-pencil" aria-hidden="true"></i> Редагувати</a>
+                    <a href="{% url 'delete_news' news.id %}" class="button-danger"><i class="bi bi-trash3" aria-hidden="true"></i> Видалити</a>
+            </div>
+                {% endif %}
+            <section class="post-reactions" data-post-reactions data-post-id="{{ news.id }}" data-user-id="{{ request.user.id }}" data-reaction-socket-path="{% url 'news_detail' news.id %}">
+                <form method="post" action="{% url 'react_to_post' news.id 'like' %}" data-reaction-form data-reaction-type="like">
+                    {% csrf_token %}
+                    <button type="submit" class="button-secondary{% if user_reaction == 'like' %} is-active{% endif %}" data-reaction-button="like" aria-pressed="{% if user_reaction == 'like' %}true{% else %}false{% endif %}">
+                        <i class="bi bi-hand-thumbs-up" aria-hidden="true"></i> Подобається <span data-reaction-count="like">{{ reaction_counts.like }}</span>
+                    </button>
+                </form>
+                <form method="post" action="{% url 'react_to_post' news.id 'dislike' %}" data-reaction-form data-reaction-type="dislike">
+                    {% csrf_token %}
+                    <button type="submit" class="button-secondary{% if user_reaction == 'dislike' %} is-active{% endif %}" data-reaction-button="dislike" aria-pressed="{% if user_reaction == 'dislike' %}true{% else %}false{% endif %}">
+                        <i class="bi bi-hand-thumbs-down" aria-hidden="true"></i> Не подобається <span data-reaction-count="dislike">{{ reaction_counts.dislike }}</span>
+                    </button>
+                </form>
+            </section>
+        </aside>
+    </article>
+    <script src="{% static 'reaction-socket.js' %}?v=1"></script>
+    <script src="{% static 'posts.js' %}"></script>   
+{% endblock %}

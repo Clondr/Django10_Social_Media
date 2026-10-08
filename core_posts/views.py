@@ -2,9 +2,10 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import JsonResponse
+from django.views.decorators.http import require_POST
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-from .models import Post, Comment, Reaction, Subscription
+from .models import Post, Comment, Reaction, Subscription, News
 from .forms import PostForm, CommentForm
 from django.contrib.auth.models import User
 from core_profile.models import Notice
@@ -79,21 +80,51 @@ def create_post(request):
 def delete_post(request, post_id):
     # Logic to delete a specific post by its ID
     post = get_object_or_404(Post, id=post_id)
-    if request.user != post.author:
-        return redirect('home')
-    else:
+    if request.user.profile.role == 'admin' or request.user == post.author:
         if request.method == 'POST':
             post.delete()
             return redirect('post_list')
         return render(request, 'core_posts/confirm_delete.html', {'post': post})
+    else:
+        return redirect('home')
+
+@login_required
+@require_POST
+def delete_post_attachment(request, post_id):
+    post = get_object_or_404(Post, id=post_id)
+    if (
+        request.user != post.author
+        and not request.user.is_superuser
+        and request.user.profile.role != 'admin'
+    ):
+        return redirect('home')
+
+    if post.file:
+        post.file = None
+        post.save()
+    return redirect('post_detail', post_id=post.id)
+
+@login_required
+@require_POST
+def delete_news_attachment(request, news_id):
+    news = get_object_or_404(News, id=news_id)
+    if (
+        request.user != news.author
+        and not request.user.is_superuser
+        and request.user.profile.role != 'admin'
+    ):
+        return redirect('home')
+
+    if news.file:
+        news.file = None
+        news.save()
+    return redirect('news_detail', news_id=news.id)
 
 @login_required
 def edit_post(request, post_id):
     # Logic to edit a specific post by its ID
     post = get_object_or_404(Post, id=post_id)
-    if request.user != post.author:
-            return redirect('home')
-    else:
+    if request.user.profile.role == 'admin' or request.user == post.author:
         if request.method == 'POST':
             form = PostForm(request.POST, request.FILES, instance=post)
             if form.is_valid():
@@ -129,14 +160,14 @@ def delete_comment(request, post_id, comment_id):
     # Logic to delete a specific comment by its ID for a specific post
     post = get_object_or_404(Post, id=post_id)
     comment = get_object_or_404(Comment, id=comment_id)
-    if request.user != comment.author:
-        return redirect('home')
-    else:
+    if request.user.profile.role == 'admin' or request.user == comment.author:
         if request.method == 'POST':
             post.comments.remove(comment)
             comment.delete()
             return redirect('post_detail', post_id=post.id)
         return render(request, 'core_posts/confirm_delete_comment.html', {'post': post, 'comment': comment})
+    else:
+        return redirect('home')
 
 @login_required
 def edit_comment(request, comment_id):
@@ -153,7 +184,7 @@ def edit_comment(request, comment_id):
 
 @login_required
 def react_to_post(request, post_id, reaction_type):
-    post = get_object_or_404(Post, id=post_id)
+    post = get_object_or_404(Post or News, id=post_id)
     if request.method == 'POST':
         valid_reactions = dict(Reaction.REACTION_CHOICES)
         if reaction_type not in valid_reactions:
@@ -235,7 +266,8 @@ def recommendation_for_user(request):
     # Get the friends of the current user
     friends = user_profile.friends.all()
 
-    # Get the users that the current user is subscribed to
+    # Get the users tha
+    # the current user is subscribed to
     subscriptions = Subscription.objects.filter(follower=request.user).values_list('user', flat=True)
 
     # Get posts from friends that the user hasn't commented on yet
@@ -252,3 +284,71 @@ def recommendation_for_user(request):
     return render(request, 'core_posts/ribbon.html', { 
         'recommended_posts': recommended_posts,
     })
+
+@login_required
+def create_news(request):
+    if request.user.profile.role != 'admin':
+        return redirect('home')  # Redirect non-admin users to home or another page
+    else:
+        if request.method == 'POST':
+            title = request.POST.get('title')
+            content = request.POST.get('content')
+            file = request.FILES.get('file')  # Get the uploaded file
+            if title and content:
+                news = News.objects.create(
+                    title=title,
+                    content=content,
+                    file=file,
+                    author=request.user,
+                )
+                return redirect('news_detail', news_id=news.id)
+        return render(request, 'news/create_news.html')
+
+@login_required
+def edit_news(request, news_id):
+    if request.user.profile.role != 'admin':
+        return redirect('home')  # Redirect non-admin users to home or another page
+    else:
+        news = get_object_or_404(News, id=news_id)
+        if request.method == 'POST':
+            title = request.POST.get('title')
+            content = request.POST.get('content')
+            file = request.FILES.get('file')  # Get the uploaded file
+            if title and content:
+                news.title = title
+                news.content = content
+                if file:
+                    news.file = file  # Update the file only if a new one is uploaded
+                news.save()
+                return redirect('news_detail', news_id=news.id)
+        return render(request, 'news/edit_news.html', {'news': news})
+
+@login_required
+def delete_news(request, news_id):
+    if request.user.profile.role != 'admin':
+        return redirect('home')  # Redirect non-admin users to home or another page
+    else:
+        news = get_object_or_404(News, id=news_id)
+        if request.method == 'POST':
+            news.delete()
+            return redirect('news_list')
+        return render(request, 'news/confirm_delete_news.html', {'news': news})
+
+def news_list(request):
+    search_query = request.GET.get('q', '').strip()
+    if search_query:
+            news_items = News.objects.filter(
+                Q(title__icontains=search_query)
+                | Q(content__icontains=search_query)
+                | Q(author__username__icontains=search_query)
+            ).distinct().order_by('-created_at')
+    else:
+        news_items = News.objects.all().order_by('-created_at')
+
+    return render(request, 'news/news_list.html', {'news_items': news_items, 'search_query': search_query})
+
+def news_detail(request, news_id):
+    news = get_object_or_404(News, id=news_id)
+    news.file_kind = get_file_kind(news.file)
+    file_kind = get_file_kind(news.file)
+    return render(request, 'news/news_detail.html', {'news': news, 'file_kind': file_kind})

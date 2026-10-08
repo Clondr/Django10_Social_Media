@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %} Список новин {% endblock %}
+
+{% block content %}
+    <h1 class="display-title">Список новин</h1>
+    <form method="get" action="{% url 'news_list' %}" class="search-form">
+        <input class="w-full max-w-md px-4 py-2 text-gray-700 
+        bg-white border border-gray-300 rounded-lg 
+        shadow-sm focus:outline-none focus:ring-2 
+        focus:ring-blue-500 
+        focus:border-transparent transition-all" type="text" name="q" placeholder="Пошук новин..." value="{{ search_query }}">
+        <button class="button-primary" type="submit">Пошук</button>
+    </form>
+        {% for news in news_items %}
+            <li class="list-item chat-list-item">
+                <div class="post-meta flex items-center space-x-2">
+                    {% if news.author %}
+                        <img src="{{ news.author.profile.avatar.url }}" alt="Аватар {{ news.author.username }}" class="h-10 w-10 rounded-full object-cover ring-2 ring-teal-100 dark:ring-teal-900">
+                        <span class="post-author">{{ news.author.username }}</span>
+                    {% else %}
+                        <span class="post-author">Автор не вказаний</span>
+                    {% endif %}
+                    <a class="text-blue-500 hover:text-blue-700 " href="{% url 'news_detail' news.id %}">{{ news.title }}</a>
+                    <p class="form-control">{{ news.content|truncatewords:20 }}</p>
+                    
+                </div>
+            </li>
+        {% empty %}
+            <li class="list-item">
+                {% if search_query %}
+                    За запитом «{{ search_query }}» новин не знайдено.
+                {% else %}
+                    Немає новин для відображення.
+                {% endif %}
+            </li>
+        {% endfor %}
+
+{% endblock %}

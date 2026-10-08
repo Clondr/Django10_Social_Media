@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %} Підтвердження видалення {% endblock %}
+
+{% block content %}
+    <h1 class="display-title">Підтвердження видалення</h1>
+    <p class="muted-copy">Ви впевнені, що хочете видалити новину "{{ news.title }}"?</p>
+    <form class="panel panel-body form-stack max-w-xl" method="post" action="{% url 'delete_news' news.id %}">
+        {% csrf_token %}
+        <button type="submit" class="button-danger">Так, видалити</button>
+        <a href="{% url 'news_list' %}" class="button-secondary">Скасувати</a>
+    </form>
+{% endblock %}

@@ -53,13 +53,21 @@
                     {% else %}
                         <a class="post-document-link" href="{{ post.file.url }}"><i class="bi bi-file-earmark-text" aria-hidden="true"></i><span>{{ post.file.name|cut:'post_files/' }}</span><i class="bi bi-download" aria-hidden="true"></i></a>
                     {% endif %}
+                    {% if request.user.is_authenticated %}
+                        {% if request.user == post.author or request.user.is_superuser or request.user.profile.role == 'admin' %}
+                            <form method="post" action="{% url 'delete_post_attachment' post.id %}">
+                                {% csrf_token %}
+                                <button type="submit" class="button-danger"><i class="bi bi-trash3" aria-hidden="true"></i> Видалити вкладення</button>
+                            </form>
+                        {% endif %}
+                    {% endif %}
                 {% else %}
                     <p class="muted-copy post-empty-attachment"><i class="bi bi-paperclip" aria-hidden="true"></i> Файл не додано</p>
                 {% endif %}
             </section>
 
             <div class="post-detail-actions">
-                {% if request.user == post.author %}
+                {% if request.user == post.author or request.user.is_superuser %}
                     <a href="{% url 'edit_post' post.id %}" class="button-primary"><i class="bi bi-pencil" aria-hidden="true"></i> Редагувати</a>
                     <a href="{% url 'delete_post' post.id %}" class="button-danger"><i class="bi bi-trash3" aria-hidden="true"></i> Видалити</a>
                 {% else %}
