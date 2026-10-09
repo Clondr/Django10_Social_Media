@@ -73,6 +73,8 @@ class Notice(models.Model):
         ('friend_request', 'Friend Request'),
         ('message', 'Message'),
         ('subscription', 'Subscription'),
+        ('administration', 'Administration'),
+        ('other', 'Other'),
         # Add more types as needed
     ]
     recipient = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='notices')

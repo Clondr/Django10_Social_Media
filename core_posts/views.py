@@ -80,7 +80,17 @@ def create_post(request):
 def delete_post(request, post_id):
     # Logic to delete a specific post by its ID
     post = get_object_or_404(Post, id=post_id)
-    if request.user.profile.role == 'admin' or request.user == post.author:
+    if request.user.profile.role == 'admin':
+        if request.method == 'POST':
+            post.delete()
+            Notice.objects.create(
+                recipient=post.author.profile,
+                type_notice='administration',
+                message=f'Your post "{post.title}" has been deleted by an administrator.'
+            )
+            return redirect('post_list')
+        return render(request, 'core_posts/confirm_delete.html', {'post': post})
+    elif request.user == post.author:
         if request.method == 'POST':
             post.delete()
             return redirect('post_list')
@@ -98,10 +108,20 @@ def delete_post_attachment(request, post_id):
         and request.user.profile.role != 'admin'
     ):
         return redirect('home')
-
-    if post.file:
-        post.file = None
-        post.save()
+    if request.user.profile.role == 'admin':
+        if post.file:
+            post.file = None
+            Notice.objects.create(
+                recipient=post.author.profile,
+                type_notice='administration',
+                message=f'Your post "{post.title}" had its attachment removed by an administrator.'
+            )
+            post.save()
+            
+    elif request.user == post.author:
+        if post.file:
+            post.file = None
+            post.save()
     return redirect('post_detail', post_id=post.id)
 
 @login_required
@@ -160,7 +180,18 @@ def delete_comment(request, post_id, comment_id):
     # Logic to delete a specific comment by its ID for a specific post
     post = get_object_or_404(Post, id=post_id)
     comment = get_object_or_404(Comment, id=comment_id)
-    if request.user.profile.role == 'admin' or request.user == comment.author:
+    if request.user.profile.role == 'admin':
+        if request.method == 'POST':
+            post.comments.remove(comment)
+            comment.delete()
+            Notice.objects.create(
+                recipient=comment.author.profile,
+                type_notice='administration',
+                message=f'Your comment on post "{post.title}" has been deleted by an administrator.'
+            )
+            return redirect('post_detail', post_id=post.id)
+        return render(request, 'core_posts/confirm_delete_comment.html', {'post': post, 'comment': comment})
+    elif request.user == comment.author:
         if request.method == 'POST':
             post.comments.remove(comment)
             comment.delete()
