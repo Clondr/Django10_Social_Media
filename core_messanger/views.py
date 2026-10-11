@@ -8,6 +8,11 @@ from django.contrib import messages
 from django.views.decorators.http import require_POST
 from .models import *
 from core_profile.models import *
+from core_profile.notifications import (
+    broadcast_notice_count,
+    create_notice,
+    notifications_enabled,
+)
 from django.utils import timezone
 # Create your views here.
 
@@ -138,6 +143,12 @@ def send_message(request, chat_id):
             self_nonce=self_nonce,
         )
         chat.messages.add(message)
+        for recipient in chat.participants.exclude(id=request.user.profile.id):
+            create_notice(
+                recipient,
+                f'Новое сообщение от {request.user.username}.',
+                'message',
+            )
 
     return redirect('chat-view', chat_id=chat.id)
 
@@ -344,8 +355,13 @@ def request_for_friendship(request, recipient_id):
         return HttpResponseBadRequest('You are already friends with this user')
 
     friend_request = FriendRequest.objects.create(sender=request.user.profile, recipient=recipient)
-    Notice.objects.create(recipient=recipient, message=f'You have a new friend request from {request.user.username}', 
-                          request_for_friendship=friend_request)
+    if notifications_enabled(recipient, 'receive_friend_request_notifications'):
+        create_notice(
+            recipient,
+            f'Новый запрос в друзья от {request.user.username}.',
+            'friend_request',
+            request_for_friendship=friend_request,
+        )
     return redirect('profile-view', id=recipient.id)
 
 @login_required
@@ -360,6 +376,7 @@ def accept_friend_request(request, request_id):
     ).exists()
     if friendship_exists:
         Notice.objects.filter(request_for_friendship=friend_request).delete()
+        broadcast_notice_count(friend_request.recipient)
         messages.warning(request, 'Цей користувач вже у вас в друзях.')
         return redirect('profile')
 
@@ -371,6 +388,7 @@ def accept_friend_request(request, request_id):
         friend_request.sender.friends.add(friend_request.recipient)
         Notice.objects.filter(request_for_friendship=friend_request).delete()
 
+    broadcast_notice_count(friend_request.recipient)
     return redirect('profile-view', id=friend_request.sender.id)
 
 @login_required
@@ -380,6 +398,7 @@ def decline_friend_request(request, request_id):
         return HttpResponseForbidden('You are not authorized to decline this friend request')
 
     Notice.objects.filter(request_for_friendship=friend_request).delete()
+    broadcast_notice_count(friend_request.recipient)
     friend_request.delete()
     return redirect('profile-view', id=friend_request.sender.id)
 
@@ -409,6 +428,7 @@ def mark_notice_as_read(request, notice_id):
     notice = get_object_or_404(Notice, id=notice_id, recipient=request.user.profile)
     notice.is_read = True
     notice.save(update_fields=['is_read'])
+    broadcast_notice_count(request.user.profile)
     return redirect('all-notices')
 
 @login_required
@@ -416,4 +436,5 @@ def mark_notice_as_read(request, notice_id):
 def delete_notice(request, notice_id):
     notice = get_object_or_404(Notice, id=notice_id, recipient=request.user.profile)
     notice.delete()
+    broadcast_notice_count(request.user.profile)
     return redirect('all-notices')

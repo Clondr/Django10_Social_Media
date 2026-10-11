@@ -8,7 +8,7 @@ from channels.layers import get_channel_layer
 from .models import Post, Comment, Reaction, Subscription, News
 from .forms import PostForm, CommentForm
 from django.contrib.auth.models import User
-from core_profile.models import Notice
+from core_profile.notifications import create_notice, notifications_enabled
 # Create your views here.
 
 def get_file_kind(file):
@@ -83,11 +83,12 @@ def delete_post(request, post_id):
     if request.user.profile.role == 'admin':
         if request.method == 'POST':
             post.delete()
-            Notice.objects.create(
-                recipient=post.author.profile,
-                type_notice='administration',
-                message=f'Your post "{post.title}" has been deleted by an administrator.'
-            )
+            if notifications_enabled(post.author.profile, 'receive_administration_notifications'):
+                create_notice(
+                    post.author.profile,
+                    f'Ваш пост був «{post.title}» видален адміністратором.',
+                    'administration',
+                )
             return redirect('post_list')
         return render(request, 'core_posts/confirm_delete.html', {'post': post})
     elif request.user == post.author:
@@ -111,11 +112,12 @@ def delete_post_attachment(request, post_id):
     if request.user.profile.role == 'admin':
         if post.file:
             post.file = None
-            Notice.objects.create(
-                recipient=post.author.profile,
-                type_notice='administration',
-                message=f'Your post "{post.title}" had its attachment removed by an administrator.'
-            )
+            if notifications_enabled(post.author.profile, 'receive_administration_notifications'):
+                create_notice(
+                    post.author.profile,
+                    f'З вашого поста «{post.title}» адміністратор видалив вложення.',
+                    'administration',
+                )
             post.save()
             
     elif request.user == post.author:
@@ -184,11 +186,12 @@ def delete_comment(request, post_id, comment_id):
         if request.method == 'POST':
             post.comments.remove(comment)
             comment.delete()
-            Notice.objects.create(
-                recipient=comment.author.profile,
-                type_notice='administration',
-                message=f'Your comment on post "{post.title}" has been deleted by an administrator.'
-            )
+            if notifications_enabled(comment.author.profile, 'receive_administration_notifications'):
+                create_notice(
+                    comment.author.profile,
+                    f'Ваш комментарій к посту «{post.title}» видален адміністратором.',
+                    'administration',
+                )
             return redirect('post_detail', post_id=post.id)
         return render(request, 'core_posts/confirm_delete_comment.html', {'post': post, 'comment': comment})
     elif request.user == comment.author:
@@ -205,10 +208,13 @@ def edit_comment(request, comment_id):
     comment = get_object_or_404(Comment, id=comment_id)
     post = get_object_or_404(Post, comments=comment)
     if request.method == 'POST':
-        form = CommentForm(request.POST, instance=comment)
-        if form.is_valid():
-            form.save()
-            return redirect('post_detail', post_id=post.id)
+        if request.user != comment.author and request.user.profile.role != 'admin':
+            return redirect('home')
+        else:
+            form = CommentForm(request.POST, instance=comment)
+            if form.is_valid():
+                form.save()
+                return redirect('post_detail', post_id=post.id)
     else:
         form = CommentForm(instance=comment)
     return render(request, 'core_posts/edit_comment.html', {'post': post, 'comment': comment, 'form': form})
@@ -263,11 +269,12 @@ def subscribe_to_user(request, user_id):
         subscription, created = Subscription.objects.get_or_create(user=user_to_follow, follower=request.user)
         if not created:
             return JsonResponse({'error': 'You are already following this user.'}, status=400)
-        Notice.objects.create(
-            recipient=user_to_follow.profile,
-            type_notice='subscription',
-            message=f'{request.user.username} has subscribed to you.'
-        )
+        if notifications_enabled(user_to_follow.profile, 'receive_subscription_notifications'):
+            create_notice(
+                user_to_follow.profile,
+                f'{request.user.username} подписался на вас.',
+                'subscription',
+            )
         return JsonResponse({'message': f'You are now following {user_to_follow.username}.'})
     return JsonResponse({'error': 'POST required.'}, status=405)
 

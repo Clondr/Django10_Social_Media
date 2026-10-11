@@ -6,10 +6,65 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 
 
 @database_sync_to_async
+def get_profile_id(user):
+    from core_profile.models import Profile
+
+    return Profile.objects.filter(user=user).values_list("id", flat=True).first()
+
+
+@database_sync_to_async
 def get_user_profile(user):
     return user.profile
 
+
 logger = logging.getLogger(__name__)
+
+
+class NotificationConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        user = self.scope["user"]
+        if not user.is_authenticated:
+            await self.close(code=4003)
+            return
+
+        profile_id = await get_profile_id(user)
+        if profile_id is None:
+            await self.close(code=4003)
+            return
+
+        self.group_name = f"notifications_{profile_id}"
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+        unread_count = await self.get_unread_notice_count(user)
+        await self.send(text_data=json.dumps({
+            "type": "notification.count",
+            "unread_count": unread_count,
+        }))
+
+    async def disconnect(self, close_code):
+        if hasattr(self, "group_name"):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def receive(self, text_data=None, bytes_data=None):
+        await self.close(code=1008)
+
+    async def notification_created(self, event):
+        await self.send(text_data=json.dumps({
+            "type": "notification.created",
+            "notification": event["notification"],
+        }))
+
+    async def notification_count(self, event):
+        await self.send(text_data=json.dumps({
+            "type": "notification.count",
+            "unread_count": event["unread_count"],
+        }))
+
+    @database_sync_to_async
+    def get_unread_notice_count(self, user):
+        from core_profile.models import Notice
+
+        return Notice.objects.filter(recipient__user=user, is_read=False).count()
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -133,6 +188,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def save_message(self, ciphertext, nonce, sender_public_key, self_ciphertext="", self_nonce=""):
         from .models import Chat, Message
+        from core_profile.notifications import create_notice
 
         if not ciphertext or not nonce:
             raise ValueError("ciphertext and nonce are required")
@@ -152,6 +208,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
             self_nonce=self_nonce,
         )
         chat.messages.add(message)
+        for recipient in chat.participants.exclude(id=sender.id):
+            create_notice(
+                recipient,
+                f'Новое сообщение от {sender.user.username}.',
+                'message',
+            )
         return message
 
 

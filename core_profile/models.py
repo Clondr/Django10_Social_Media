@@ -86,3 +86,13 @@ class Notice(models.Model):
 
     def __str__(self):
         return f'Notice for {self.recipient.username}: {self.message[:20]}...'
+
+class SettingForNotice(models.Model):
+    user = models.OneToOneField(Profile, on_delete=models.CASCADE, related_name='notice_settings')
+    receive_friend_request_notifications = models.BooleanField(default=True)
+    receive_subscription_notifications = models.BooleanField(default=True)
+    receive_administration_notifications = models.BooleanField(default=True)
+    receive_other_notifications = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f'Notification settings for {self.user.username}'

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Змінити налаштування{% endblock %}
+{% block content %}
+  <div class="page-heading"><p class="eyebrow">Обліковий запис</p><h1 class="display-title">Змінити налаштування</h1></div>
+  <section class="panel panel-body">
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit" class="button-primary">Зберегти зміни</button>
+    </form>
+  </section>
+{% endblock %}

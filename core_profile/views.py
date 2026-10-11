@@ -61,3 +61,15 @@ def delete_bio_of_user(request):
     profile.bio = ''
     profile.save()
     return redirect('profile')
+
+@login_required
+def change_settings(request):
+    setting, _ = SettingForNotice.objects.get_or_create(user=request.user.profile)
+    if request.method == 'POST':
+        form = ChangeSettingsForm(request.POST, instance=setting)
+        if form.is_valid():
+            form.save()
+            return redirect('profile')
+    else:
+        form = ChangeSettingsForm(instance=setting)
+    return render(request, 'core_profile/change_settings.html', {'form': form})
