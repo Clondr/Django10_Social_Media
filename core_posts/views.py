@@ -1,8 +1,9 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q
+from django.db.models import Q, Prefetch, Count
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
+from django.http import Http404
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from .models import Post, Comment, Reaction, Subscription, News
@@ -10,22 +11,6 @@ from .forms import PostForm, CommentForm
 from django.contrib.auth.models import User
 from core_profile.notifications import create_notice, notifications_enabled
 # Create your views here.
-
-def get_file_kind(file):
-    """Определяет тип вложения по расширению файла."""
-    if not file:
-        return None
-    name = file.name.lower()
-    image_exts = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico')
-    video_exts = ('.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv')
-    audio_exts = ('.mp3', '.wav', '.ogg', '.m4a', '.flac', '.opus')
-    if name.endswith(image_exts):
-        return 'image'
-    if name.endswith(video_exts):
-        return 'video'
-    if name.endswith(audio_exts):
-        return 'audio'
-    return 'document'
 
 
 def post_list(request):
@@ -35,18 +20,23 @@ def post_list(request):
             Q(title__icontains=search_query)
             | Q(content__icontains=search_query)
             | Q(author__username__icontains=search_query)
-        ).distinct().order_by('-created_at')
+        ).distinct().select_related('author', 'author__profile').order_by('-created_at')
     else:
-        posts = Post.objects.all().order_by('-created_at')
+        posts = Post.objects.all().select_related('author', 'author__profile').order_by('-created_at')
     return render(request, 'core_posts/post_list.html', {
         'posts': posts,
         'search_query': search_query,
     })
 
+
 def post_detail(request, post_id):
     # Logic to retrieve and display a specific post by its ID
-    post = get_object_or_404(Post, id=post_id)
-    file_kind = get_file_kind(post.file)
+    post = get_object_or_404(Post.objects.select_related('author', 'author__profile').prefetch_related(
+        Prefetch('comments', queryset=Comment.objects.select_related('author', 'author__profile'))
+    ).annotate(
+        like_count=Count('reactions', filter=Q(reactions__reaction_type='like')),
+        dislike_count=Count('reactions', filter=Q(reactions__reaction_type='dislike'))
+    ), id=post_id)
     user_reaction = None
     if request.user.is_authenticated:
         user_reaction = post.reactions.filter(
@@ -54,13 +44,14 @@ def post_detail(request, post_id):
         ).values_list('reaction_type', flat=True).first()
     return render(request, 'core_posts/post_detail.html', {
         'post': post,
-        'file_kind': file_kind,
+        'file_kind': post.file_kind,
         'reaction_counts': {
-            'like': post.reactions.filter(reaction_type='like').count(),
-            'dislike': post.reactions.filter(reaction_type='dislike').count(),
+            'like': post.like_count,
+            'dislike': post.dislike_count,
         },
         'user_reaction': user_reaction,
     })
+
 
 @login_required
 def create_post(request):
@@ -75,6 +66,7 @@ def create_post(request):
     else:
         form = PostForm()
     return render(request, 'core_posts/create_post.html', {'form': form})
+
 
 @login_required
 def delete_post(request, post_id):
@@ -99,6 +91,7 @@ def delete_post(request, post_id):
     else:
         return redirect('home')
 
+
 @login_required
 @require_POST
 def delete_post_attachment(request, post_id):
@@ -119,12 +112,13 @@ def delete_post_attachment(request, post_id):
                     'administration',
                 )
             post.save()
-            
+
     elif request.user == post.author:
         if post.file:
             post.file = None
             post.save()
     return redirect('post_detail', post_id=post.id)
+
 
 @login_required
 @require_POST
@@ -142,6 +136,7 @@ def delete_news_attachment(request, news_id):
         news.save()
     return redirect('news_detail', news_id=news.id)
 
+
 @login_required
 def edit_post(request, post_id):
     # Logic to edit a specific post by its ID
@@ -156,6 +151,7 @@ def edit_post(request, post_id):
             form = PostForm(instance=post)
         return render(request, 'core_posts/edit_post.html', {'form': form, 'post': post})
 
+
 @login_required
 def create_comment(request, post_id):
     # Logic to handle comment creation for a specific post
@@ -168,14 +164,12 @@ def create_comment(request, post_id):
             return render(request, 'core_posts/create_comment.html', {'post': post, 'error': 'You have already commented on this post.'})
         if request.method == 'POST':
             content = request.POST.get('content')
-            if post.only_one_comment_on_user(request.user):
-                # User has already commented on this post, handle accordingly (e.g., show an error message)
-                return render(request, 'core_posts/create_comment.html', {'post': post, 'error': 'You have already commented on this post.'})
             if content:
                 comment = Comment.objects.create(author=request.user, content=content)
                 post.comments.add(comment)
                 return redirect('post_detail', post_id=post.id)
         return render(request, 'core_posts/create_comment.html', {'post': post, 'form': form})
+
 
 @login_required
 def delete_comment(request, post_id, comment_id):
@@ -203,6 +197,7 @@ def delete_comment(request, post_id, comment_id):
     else:
         return redirect('home')
 
+
 @login_required
 def edit_comment(request, comment_id):
     comment = get_object_or_404(Comment, id=comment_id)
@@ -219,44 +214,76 @@ def edit_comment(request, comment_id):
         form = CommentForm(instance=comment)
     return render(request, 'core_posts/edit_comment.html', {'post': post, 'comment': comment, 'form': form})
 
+
 @login_required
+@require_POST
 def react_to_post(request, post_id, reaction_type):
-    post = get_object_or_404(Post or News, id=post_id)
+    # Try to get the object from Post model first, then News model
+    try:
+        post = get_object_or_404(Post, id=post_id)
+    except Http404:
+        post = get_object_or_404(News, id=post_id)
+
     if request.method == 'POST':
         valid_reactions = dict(Reaction.REACTION_CHOICES)
         if reaction_type not in valid_reactions:
             return JsonResponse({'error': 'Invalid reaction type.'}, status=400)
 
-        # Check if the user has already reacted to this post
-        existing_reaction = post.reactions.filter(user=request.user).first()
-        current_reaction = reaction_type
-        if existing_reaction:
-            # If the reaction type is the same, remove the reaction (toggle off)
-            if existing_reaction.reaction_type == reaction_type:
-                existing_reaction.delete()
-                current_reaction = None
+        # Check if the object supports reactions (Post model has reactions, News may not)
+        if hasattr(post, 'reactions'):
+            # Check if the user has already reacted to this post
+            existing_reaction = post.reactions.filter(user=request.user).first()
+            current_reaction = reaction_type
+            if existing_reaction:
+                # If the reaction type is the same, remove the reaction (toggle off)
+                if existing_reaction.reaction_type == reaction_type:
+                    existing_reaction.delete()
+                    current_reaction = None
+                else:
+                    # Update the reaction type
+                    existing_reaction.reaction_type = reaction_type
+                    existing_reaction.save()
             else:
-                # Update the reaction type
-                existing_reaction.reaction_type = reaction_type
-                existing_reaction.save()
+                # Create a new reaction
+                post.reactions.create(user=request.user, reaction_type=reaction_type)
+            # Aggregation for likes and dislikes
+            reaction_counts = post.reactions.aggregate(
+                like_count=Count('id', filter=Q(reaction_type='like')),
+                dislike_count=Count('id', filter=Q(reaction_type='dislike'))
+            )
+            reaction = {
+                'post_id': post.id,
+                'likes': reaction_counts['like_count'],
+                'dislikes': reaction_counts['dislike_count'],
+                'user_id': request.user.id,
+                'reaction_type': current_reaction,
+            }
         else:
-            # Create a new reaction
-            post.reactions.create(user=request.user, reaction_type=reaction_type)
-        reaction = {
-            'post_id': post.id,
-            'likes': post.reactions.filter(reaction_type='like').count(),
-            'dislikes': post.reactions.filter(reaction_type='dislike').count(),
-            'user_id': request.user.id,
-            'reaction_type': current_reaction,
-        }
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f'post_reactions_{post.id}',
-            {'type': 'reaction.update', 'reaction': reaction},
-        )
+            # For objects that don't support reactions (like News without reactions field)
+            # We'll still return a success response but without reaction counts
+            reaction = {
+                'post_id': post.id,
+                'likes': 0,
+                'dislikes': 0,
+                'user_id': request.user.id,
+                'reaction_type': reaction_type,
+            }
+
+        # Only send WebSocket update if the object has reactions
+        if hasattr(post, 'reactions'):
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f'post_reactions_{post.id}',
+                {'type': 'reaction.update', 'reaction': reaction},
+            )
+
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return JsonResponse(reaction)
-        return redirect('post_detail', post_id=post.id)
+        # Redirect appropriately based on object type
+        if isinstance(post, Post):
+            return redirect('post_detail', post_id=post.id)
+        else:  # News object
+            return redirect('news_detail', news_id=post.id)
     return JsonResponse({'error': 'POST required.'}, status=405)
 
 
@@ -278,10 +305,12 @@ def subscribe_to_user(request, user_id):
         return JsonResponse({'message': f'You are now following {user_to_follow.username}.'})
     return JsonResponse({'error': 'POST required.'}, status=405)
 
+
 @login_required
 def all_subscriptions(request):
     subscriptions = Subscription.objects.filter(follower=request.user)
     return render(request, 'core_posts/all_subscriptions.html', {'subscriptions': subscriptions})
+
 
 @login_required
 def unsubscribe_from_user(request, user_id):
@@ -295,9 +324,10 @@ def unsubscribe_from_user(request, user_id):
             return JsonResponse({'error': 'You are not following this user.'}, status=400)
     return JsonResponse({'error': 'POST required.'}, status=405)
 
+
 @login_required
 def recommendation_for_user(request):
-    
+
     # Get the current user's profile
     user_profile = request.user.profile
 
@@ -310,18 +340,18 @@ def recommendation_for_user(request):
 
     # Get posts from friends that the user hasn't commented on yet
     recommended_posts = Post.objects.filter(
-        Q(author__profile__in=friends) | 
+        Q(author__profile__in=friends) |
         Q(author__profile__in=subscriptions)
     ).exclude(
         comments__author=request.user
     ).distinct().order_by('-created_at')
 
-    for post in recommended_posts:
-        post.file_kind = get_file_kind(post.file)
+    # Note: file_kind is accessed via the property in the template, so no need to set it here
 
-    return render(request, 'core_posts/ribbon.html', { 
+    return render(request, 'core_posts/ribbon.html', {
         'recommended_posts': recommended_posts,
     })
+
 
 @login_required
 def create_news(request):
@@ -342,6 +372,7 @@ def create_news(request):
                 return redirect('news_detail', news_id=news.id)
         return render(request, 'news/create_news.html')
 
+
 @login_required
 def edit_news(request, news_id):
     if request.user.profile.role != 'admin':
@@ -361,6 +392,7 @@ def edit_news(request, news_id):
                 return redirect('news_detail', news_id=news.id)
         return render(request, 'news/edit_news.html', {'news': news})
 
+
 @login_required
 def delete_news(request, news_id):
     if request.user.profile.role != 'admin':
@@ -371,6 +403,7 @@ def delete_news(request, news_id):
             news.delete()
             return redirect('news_list')
         return render(request, 'news/confirm_delete_news.html', {'news': news})
+
 
 def news_list(request):
     search_query = request.GET.get('q', '').strip()
@@ -385,8 +418,8 @@ def news_list(request):
 
     return render(request, 'news/news_list.html', {'news_items': news_items, 'search_query': search_query})
 
+
 def news_detail(request, news_id):
     news = get_object_or_404(News, id=news_id)
-    news.file_kind = get_file_kind(news.file)
-    file_kind = get_file_kind(news.file)
+    file_kind = news.file_kind
     return render(request, 'news/news_detail.html', {'news': news, 'file_kind': file_kind})

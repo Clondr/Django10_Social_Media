@@ -24,6 +24,23 @@ class Post(models.Model):
     def __str__(self):
         return self.title
 
+    @property
+    def file_kind(self):
+        """Determine the attachment type based on file extension."""
+        if not self.file:
+            return None
+        name = self.file.name.lower()
+        image_exts = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico')
+        video_exts = ('.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv')
+        audio_exts = ('.mp3', '.wav', '.ogg', '.m4a', '.flac', '.opus')
+        if name.endswith(image_exts):
+            return 'image'
+        if name.endswith(video_exts):
+            return 'video'
+        if name.endswith(audio_exts):
+            return 'audio'
+        return 'document'
+
     def save(self, *args, **kwargs):
         old_file_name = None
         if self.pk:
@@ -83,6 +100,23 @@ class News(models.Model):
 
     def __str__(self):
         return self.title
+
+    @property
+    def file_kind(self):
+        """Determine the attachment type based on file extension."""
+        if not self.file:
+            return None
+        name = self.file.name.lower()
+        image_exts = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico')
+        video_exts = ('.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv')
+        audio_exts = ('.mp3', '.wav', '.ogg', '.m4a', '.flac', '.opus')
+        if name.endswith(image_exts):
+            return 'image'
+        if name.endswith(video_exts):
+            return 'video'
+        if name.endswith(audio_exts):
+            return 'audio'
+        return 'document'
 
     def save(self, *args, **kwargs):
         old_file_name = None
