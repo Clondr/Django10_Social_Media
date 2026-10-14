@@ -412,14 +412,14 @@ def news_list(request):
                 Q(title__icontains=search_query)
                 | Q(content__icontains=search_query)
                 | Q(author__username__icontains=search_query)
-            ).distinct().order_by('-created_at')
+            ).distinct().select_related('author', 'author__profile').order_by('-created_at')
     else:
-        news_items = News.objects.all().order_by('-created_at')
+        news_items = News.objects.all().select_related('author', 'author__profile').order_by('-created_at')
 
     return render(request, 'news/news_list.html', {'news_items': news_items, 'search_query': search_query})
 
 
 def news_detail(request, news_id):
-    news = get_object_or_404(News, id=news_id)
+    news = get_object_or_404(News.objects.select_related('author', 'author__profile'), id=news_id)
     file_kind = news.file_kind
     return render(request, 'news/news_detail.html', {'news': news, 'file_kind': file_kind})

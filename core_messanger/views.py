@@ -8,6 +8,7 @@ from django.contrib import messages
 from django.views.decorators.http import require_POST
 from .models import *
 from core_profile.models import *
+from django.db.models import Prefetch
 from core_profile.notifications import (
     broadcast_notice_count,
     create_notice,
@@ -92,13 +93,24 @@ def create_chat(request, recipient_id):
 
 @login_required
 def chat_list_view(request):
-    chats = Chat.objects.filter(participants=request.user.profile)
+    chats = Chat.objects.filter(participants=request.user.profile).annotate(
+        participant_count=Count('participants')
+    ).prefetch_related(
+        Prefetch('participants', queryset=Profile.objects.select_related('user'))
+    )
     for chat in chats:
-        chat.participant_count = chat.participants.count()
-        chat.other_participant = chat.get_other_participant(request.user.profile)
-        chat.group_participants = chat.participants.exclude(
-            id=request.user.profile.id
-        ).order_by('user__username')
+        # Compute other_participant and group_participants from prefetched participants
+        other_participant = None
+        group_participants = []
+        for participant in chat.participants.all():
+            if participant.id == request.user.profile.id:
+                continue
+            if other_participant is None:
+                other_participant = participant
+            else:
+                group_participants.append(participant)
+        chat.other_participant = other_participant
+        chat.group_participants = group_participants
     return render(request, 'core_messanger/chat_list.html', {'chats': chats})
 
 @login_required
@@ -347,11 +359,7 @@ def request_for_friendship(request, recipient_id):
     if existing_request:
         return HttpResponseBadRequest('Friend request already sent')
 
-    existing_friendship = Friendship.objects.filter(
-        (Q(user1=request.user.profile) & Q(user2=recipient)) |
-        (Q(user1=recipient) & Q(user2=request.user.profile))
-    ).first()
-    if existing_friendship:
+    if request.user.profile.friends.filter(id=recipient.id).exists():
         return HttpResponseBadRequest('You are already friends with this user')
 
     friend_request = FriendRequest.objects.create(sender=request.user.profile, recipient=recipient)
@@ -370,11 +378,7 @@ def accept_friend_request(request, request_id):
     if friend_request.recipient != request.user.profile:
         return HttpResponseForbidden('You are not authorized to accept this friend request')
 
-    friendship_exists = Friendship.objects.filter(
-        (Q(user1=friend_request.sender) & Q(user2=friend_request.recipient)) |
-        (Q(user1=friend_request.recipient) & Q(user2=friend_request.sender))
-    ).exists()
-    if friendship_exists:
+    if friend_request.sender.friends.filter(id=friend_request.recipient.id).exists():
         Notice.objects.filter(request_for_friendship=friend_request).delete()
         broadcast_notice_count(friend_request.recipient)
         messages.warning(request, 'Цей користувач вже у вас в друзях.')
@@ -384,7 +388,6 @@ def accept_friend_request(request, request_id):
         friend_request.is_accepted = True
         friend_request.when_was_accepted = timezone.now()
         friend_request.save(update_fields=['is_accepted', 'when_was_accepted'])
-        Friendship.objects.create(user1=friend_request.sender, user2=friend_request.recipient)
         friend_request.sender.friends.add(friend_request.recipient)
         Notice.objects.filter(request_for_friendship=friend_request).delete()
 
@@ -405,15 +408,8 @@ def decline_friend_request(request, request_id):
 @login_required
 def remove_friend(request, friend_id):
     friend = get_object_or_404(Profile, id=friend_id)
-    friendship = Friendship.objects.filter(
-        (Q(user1=request.user.profile) & Q(user2=friend)) |
-        (Q(user1=friend) & Q(user2=request.user.profile))
-    ).first()
-
-    if not friendship:
+    if not request.user.profile.friends.filter(id=friend.id).exists():
         return HttpResponseBadRequest('You are not friends with this user')
-
-    friendship.delete()
     request.user.profile.friends.remove(friend)
     return redirect('profile-view', id=friend.id)
 

@@ -23,7 +23,7 @@ class Profile(models.Model):
     bio = models.TextField(blank=True, max_length=250)
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True, default='avatars/default.png' )
     encryption_public_key = models.TextField(blank=True)
-    friends = models.ManyToManyField('self', symmetrical=True, blank=True)
+    friends = models.ManyToManyField('self', symmetrical=True, through='Friendship', blank=True)
 
     def __str__(self):
         return f'Profile of {self.user.username} role: {self.role}'
