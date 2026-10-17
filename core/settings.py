@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+from json import*
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,7 +22,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-hwxj45x#$&32ly)9!2h_y=!hi9*$f3q3jql3nx34ev00h6hrd9'
+with open(BASE_DIR / 'settings.json') as f:
+    secret_key = load(f)
+SECRET_KEY = secret_key['secret_key']
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -28,11 +32,9 @@ DEBUG = True
 ALLOWED_HOSTS = [
         'localhost', 
         '127.0.0.1', 
-        '[::1]', 
         '192.168.0.28',
         'https://*.ngrok-free.dev',
-        'https://apterial-sandra-undevelopmentally.ngrok-free.dev',
-        'apterial-sandra-undevelopmentally.ngrok-free.dev']
+        'https://apterial-sandra-undevelopmentally.ngrok-free.dev',]
 
 
 # Application definition
